@@ -7,19 +7,24 @@ app = Flask(__name__)
 # Load the trained model
 model = joblib.load("customer_satisfaction_model.pkl")
 
+# ✅ Define Encoding for Ticket Type (Ensure it Matches Training)
+ticket_type_mapping = {
+    "Technical issue": 0,
+    "Billing inquiry": 1,
+    "Account support": 2,
+    "General inquiry": 3,
+    "Delivery Issue": 4  # Adjust based on training data
+}
+
 # ✅ Home Route (Renders HTML Page)
 @app.route("/")
 def home():
-    return render_template("index.html")  # This will display your HTML page
+    return render_template("index.html")
 
-# ✅ Features Route (Check Expected Columns)
+# ✅ Features Endpoint (Returns Expected Features)
 @app.route("/features", methods=["GET"])
 def get_features():
-    try:
-        feature_names = model.feature_names_in_.tolist()  # Get expected column names
-        return jsonify({"expected_features": feature_names})
-    except Exception as e:
-        return jsonify({"error": str(e)})
+    return jsonify({"expected_features": ["Customer Age", "Ticket Priority", "Ticket Type"]})
 
 # ✅ Prediction Route (API Endpoint)
 @app.route("/predict", methods=["POST"])
@@ -28,19 +33,20 @@ def predict():
         # Get JSON input
         data = request.get_json()
 
-        # Convert input to DataFrame
-        df = pd.DataFrame(data, index=[0])
-
-        # ✅ Ensure only expected columns are used
-        expected_features = model.feature_names_in_.tolist()
-
-        # ✅ Check if the request contains all required features
-        missing_features = [feature for feature in expected_features if feature not in df.columns]
+        # Validate that required features exist
+        required_features = ["Customer Age", "Ticket Priority", "Ticket Type"]
+        missing_features = [feat for feat in required_features if feat not in data]
         if missing_features:
-            return jsonify({"error": f"Missing required features: {missing_features}"})
+            return jsonify({"error": f"Missing required features: {missing_features}"}), 400
 
-        # ✅ Ensure the DataFrame has only the expected columns
-        df = df[expected_features]
+        # Convert input to DataFrame
+        df = pd.DataFrame([data])
+
+        # ✅ Encode "Ticket Type" to a number
+        if df["Ticket Type"][0] not in ticket_type_mapping:
+            return jsonify({"error": f"Invalid Ticket Type: {df['Ticket Type'][0]}. Allowed values: {list(ticket_type_mapping.keys())}"}), 400
+        
+        df["Ticket Type"] = df["Ticket Type"].map(ticket_type_mapping)
 
         # Make prediction
         prediction = model.predict(df)
@@ -49,7 +55,7 @@ def predict():
         return jsonify({"customer_satisfaction": int(prediction[0])})
 
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
